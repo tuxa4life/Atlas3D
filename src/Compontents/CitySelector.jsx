@@ -1,5 +1,5 @@
 import { useData } from "../Context/DataContext"
-import Dropdown from "./UI/Dropdown"
+import SearchBar from "./UI/SearchBar"
 import { ReactComponent as Tab } from './Svgs/tab.svg'
 import { useEffect, useState } from "react"
 import Button from "./UI/Button"
@@ -8,17 +8,10 @@ import { GLTFExporter } from "three/examples/jsm/Addons.js"
 import { useError } from "../Context/ErrorContext"
 
 const CitySelector = ({ setMapOpen }) => {
-    const { countries, cities, selectCountry, setSelectedCity, mesh, setElevated, fetching } = useData()
+    const { setSelectedCity, mesh, setElevated } = useData()
     const { setLoaderMessage, setLoaderState } = useError()
     const [open, setOpen] = useState(true)
 
-    const formatData = (data) => {
-        return Object.entries(data).map(([name, code]) => ({
-            text: name.charAt(0).toUpperCase() + name.slice(1),
-            value: code,
-        }))
-    }
-    
     useEffect(() => {
         const handleKeyDown = (e) => {
             if (e.key === 'Tab') {
@@ -70,15 +63,9 @@ const CitySelector = ({ setMapOpen }) => {
             <Tab style={{ width: '20px', height: '20px', scale: open ? '1' : '-1', }} />
         </div>
 
-        <div style={{ margin: ' 0 0 20px 0' }}>
-            <h4>Select a country</h4>
-            <Dropdown disabled={!Object.keys(countries).length} options={() => formatData(countries)} placeholder="Search country..." onChange={(e) => selectCountry(e.value)} />
-        </div>
-
-        <div style={{ margin: '20px 0 10px 0' }}>
-            <h4>Select a city</h4>
-            <Dropdown disabled={!Object.keys(cities).length} options={() => formatData(cities)} placeholder="Search city..." onChange={(e) => setSelectedCity(e.value)} />
-            { fetching && <p style={{marginTop: '5px'}}>Loading cities...</p> }
+        <div style={{ margin: '0 0 20px 0' }}>
+            <h4>Search for a city</h4>
+            <SearchBar placeholder="Search for a city..." onSelect={(place) => setSelectedCity(place)} />
         </div>
 
         <Checkbox label='Ignore elevation' onChange={(checked) => setElevated(!checked)} />

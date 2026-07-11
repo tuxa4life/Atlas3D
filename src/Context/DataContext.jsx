@@ -2,36 +2,19 @@ import { createContext, useContext, useEffect, useState, useCallback, useMemo } 
 import axios from 'axios'
 import { useError } from './ErrorContext'
 import { getCenters, processBuildings, returnQuery, scaleCoordinates } from '../utils/dataFunctions'
-import { fetchCitiesService, fetchCountriesService, fetchElevationsService, fetchWithRetryService } from '../services/apiService'
+import { fetchElevationsService, fetchWithRetryService } from '../services/apiService'
 
 const DataContext = createContext()
 
 const DataProvider = ({ children }) => {
     const { showError, setLoaderState, setLoaderMessage } = useError()
 
-    const [fetching, setFetching] = useState(false)
     const [buildings, setBuildings] = useState([])
-    const [countries, setCountries] = useState({})
-    const [selectedCountry, setSelectedCountry] = useState('')
-    const [cities, setCities] = useState({})
     const [selectedCity, setSelectedCity] = useState(-1)
     const [mesh, setMesh] = useState(null)
     const [elevated, setElevated] = useState(true)
 
     const fetchWithRetry = useCallback(async (fetchFn, maxRetries, baseDelay) => await fetchWithRetryService(fetchFn, maxRetries, baseDelay, showError), [showError])
-
-    const fetchCountries = useCallback(async () => {
-        const result = await fetchCountriesService(showError)
-        setCountries(result)
-    }, [showError])
-
-    const fetchCities = useCallback(
-        async (countryCode) => {
-            const result = await fetchCitiesService(countryCode, showError)
-            setCities(result)
-        },
-        [showError]
-    )
 
     const fetchElevations = useCallback(
         async (coordinates) => {
@@ -81,22 +64,6 @@ const DataProvider = ({ children }) => {
         [fetchWithRetry, fetchElevations, scaleOSMCoordinates, setLoaderMessage, setLoaderState, showError]
     )
 
-    const selectCountry = useCallback((country) => {
-        setCities({})
-        setSelectedCountry(country)
-    }, [])
-
-    useEffect(() => {
-        fetchCountries()
-    }, [fetchCountries])
-
-    useEffect(() => {
-        if (selectedCountry) {
-            setFetching(true)
-            fetchCities(selectedCountry).finally(() => setFetching(false))
-        }
-    }, [selectedCountry, fetchCities])
-
     useEffect(() => {
         if (selectedCity !== -1) {
             fetchBuildings(selectedCity.id, selectedCity.type)
@@ -107,17 +74,13 @@ const DataProvider = ({ children }) => {
         () => ({
             mesh,
             setMesh,
-            fetching,
             buildings,
-            countries,
-            cities,
             setSelectedCity,
-            selectCountry,
             elevated,
             setElevated,
             fetchBuildings,
         }),
-        [mesh, fetching, buildings, countries, cities, elevated, selectCountry, fetchBuildings]
+        [mesh, buildings, elevated, fetchBuildings]
     )
 
     return <DataContext.Provider value={contextValue}>{children}</DataContext.Provider>

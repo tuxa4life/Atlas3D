@@ -1,7 +1,6 @@
 import { BASE_RETRY_DELAY, ELEVATION_BATCH_SIZE, MAX_RETRIES } from '../constants/dataConstants'
-import axios from 'axios'
 
-const getEnglishName = (tags) => tags['name:en'] || tags['int_name'] || tags['name:latin'] || tags['official_name:en'] || tags['name']
+const OSM_TYPE_MAP = { N: 'node', W: 'way', R: 'relation' }
 
 export const fetchWithRetryService = async (fetchFn, maxRetries = MAX_RETRIES, baseDelay = BASE_RETRY_DELAY, showError) => {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -55,66 +54,34 @@ export const fetchElevationsService = async (coordinates, showError) => {
     }
 }
 
-export const fetchCountriesService = async (showError) => {
-    try {
-        const res = await axios.get('https://restcountries.com/v3.1/all?fields=name,cca2')
-
-        const countryCodes = res.data.reduce((acc, c) => {
-            acc[c.name.common.toLowerCase()] = c.cca2
-            return acc
-        }, {})
-
-        return countryCodes
-    } catch (err) {
-        showError(`Error ${err.status} while loading countries.`)
-
-        return -1
-    }
-}
-
-export const fetchCitiesService = async (countryCode, showError) => {
-    const query = `
-            [out:json][timeout:60];
-            area["ISO3166-1"="${countryCode}"]->.country;
-                (
-                    relation["place"~"city|town"]["population"](area.country);
-                    way["place"~"city|town"]["population"](area.country);
-                    node["place"~"city|town"]["population"](area.country);
-                );
-            out tags center;
-        `
+export const searchPlacesService = async (query, showError) => {
+    const params = new URLSearchParams({ q: query, limit: '8', lang: 'en' })
+    // Restrict results to populated places (cities, towns, villages).
+    params.append('osm_tag', 'place:city')
+    params.append('osm_tag', 'place:town')
+    params.append('osm_tag', 'place:village')
 
     try {
-        const response = await fetchWithRetryService(() =>
-            axios.post('https://overpass-api.de/api/interpreter', query, {
-                headers: { 'Content-Type': 'text/plain' },
-            })
-        )
+        const response = await fetch(`https://photon.komoot.io/api?${params.toString()}`)
 
-        const typeOrder = { relation: 0, way: 1, node: 2 }
-        const cityMap = response.data.elements
-            .sort((a, b) => {
-                const typeComparison = typeOrder[a.type] - typeOrder[b.type]
-                if (typeComparison !== 0) return typeComparison
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`)
+        }
 
-                const popA = parseInt(a.tags?.population) || 0
-                const popB = parseInt(b.tags?.population) || 0
-                return popB - popA
-            })
-            .reduce((acc, e) => {
-                const name = getEnglishName(e.tags)
-                if (!acc[name]) {
-                    acc[name] = {
-                        id: e.id,
-                        type: e.type,
-                    }
+        const data = await response.json()
+
+        return (data.features || [])
+            .filter((f) => OSM_TYPE_MAP[f.properties?.osm_type])
+            .map((f) => {
+                const p = f.properties
+                const label = [p.name, p.state, p.country].filter(Boolean).join(', ')
+                return {
+                    text: label,
+                    value: { id: p.osm_id, type: OSM_TYPE_MAP[p.osm_type] },
                 }
-                return acc
-            }, {})
-
-        return cityMap
+            })
     } catch (err) {
-        showError(`Error ${err.response?.status || err.status} while loading cities.`)
-        return -1
+        showError(`Error ${err.message} while searching places.`)
+        return []
     }
 }

@@ -1,10 +1,10 @@
 import { useData } from "../Context/DataContext"
 import SearchBar from "./UI/SearchBar"
-import { ReactComponent as Tab } from './Svgs/tab.svg'
+import Tab from './Svgs/tab.svg?react'
 import { useEffect, useState } from "react"
 import Button from "./UI/Button"
 import Checkbox from "./UI/Checkbox"
-import { GLTFExporter } from "three/examples/jsm/Addons.js"
+import { GLTFExporter } from "three/addons/Addons.js"
 import { useError } from "../Context/ErrorContext"
 
 const CitySelector = ({ setMapOpen }) => {

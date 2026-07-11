@@ -33,10 +33,12 @@ npm start
 ## Tech Stack
 
 -   React – Frontend framework
+-   Vite – Build tooling and dev server
 -   Three.js – 3D map rendering
 -   Axios – API requests to OSM
--   OpenStreetMap API – Geospatial data source
--   Open-Elevation API - Geoelevation data source
+-   OpenStreetMap Overpass API – Geospatial (building) data source
+-   Open-Elevation API – Geoelevation data source, with Open-Meteo as a fallback
+-   Country name → ISO code list is bundled locally (the former RestCountries API is deprecated)
 
 ## API and Function data structure
 

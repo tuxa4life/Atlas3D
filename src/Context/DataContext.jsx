@@ -1,8 +1,7 @@
 import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react'
-import axios from 'axios'
 import { useError } from './ErrorContext'
 import { getCenters, processBuildings, returnQuery, scaleCoordinates } from '../utils/dataFunctions'
-import { fetchElevationsService, fetchWithRetryService } from '../services/apiService'
+import { fetchElevationsService, fetchWithRetryService, postOverpassService } from '../services/apiService'
 
 const DataContext = createContext()
 
@@ -42,13 +41,9 @@ const DataProvider = ({ children }) => {
             const query = returnQuery(cityId, type)
 
             try {
-                const response = await fetchWithRetry(() =>
-                    axios.post('https://overpass-api.de/api/interpreter', query, {
-                        headers: { 'Content-Type': 'text/plain' },
-                    })
-                )
+                const elements = await fetchWithRetry(() => postOverpassService(query))
 
-                const processedBuildings = processBuildings(response.data.elements)
+                const processedBuildings = processBuildings(elements)
                 const centers = getCenters(processedBuildings)
                 const elevations = await fetchElevations(centers)
                 const processedElevatedBuildings = processedBuildings.map((b, i) => ({ ...b, elevation: elevations[i]?.elevation }))
@@ -57,7 +52,8 @@ const DataProvider = ({ children }) => {
                 setBuildings(scaledBuildings)
             } catch (err) {
                 setLoaderState(false)
-                showError(`Error ${err.response?.status || err.status} while generating fetching buildings.`)
+                const detail = err.isOverpassBusy ? err.message : `Error ${err.response?.status || err.status || err.message} while fetching buildings.`
+                showError(detail)
                 return -1
             }
         },

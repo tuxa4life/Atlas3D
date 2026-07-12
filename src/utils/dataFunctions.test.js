@@ -4,6 +4,10 @@ import {
     returnQuery,
     processBuildings,
     scaleCoordinates,
+    createTransform,
+    projectBuildings,
+    getMinElevation,
+    getGeoBounds,
 } from './dataFunctions'
 import { DEFAULT_BUILDING_LEVELS } from '../constants/dataConstants'
 
@@ -190,6 +194,18 @@ describe('scaleCoordinates', () => {
         expect(north[1]).toBeGreaterThan(origin[1]) // north of origin -> larger z
     })
 
+    it('is equivalent to createTransform + projectBuildings', () => {
+        const input = [
+            { nodes: [[0, 0], [0.01, 0.01], [0, 0.01]], height: 3, elevation: 100 },
+            { nodes: [[0.002, 0.002], [0.008, 0.002], [0.008, 0.008]], height: 5, elevation: 120 },
+        ]
+        const oneShot = scaleCoordinates(input)
+
+        const transform = createTransform(getGeoBounds(input), { elevationBase: getMinElevation(input) })
+        expect(projectBuildings(input, transform)).toEqual(oneShot.buildings)
+        expect(transform).toEqual(oneShot.transform)
+    })
+
     it('scales heights against real meters (verticalScale), not world units', () => {
         // ~1.1km-wide area at the equator with targetSize 3000 -> roughly
         // 2.7 scene units per meter; a 1-level building (24m) lands near 65.
@@ -199,5 +215,39 @@ describe('scaleCoordinates', () => {
         expect(buildings[0].height).toBeCloseTo(24 * transform.verticalScale, 6)
         expect(buildings[0].height).toBeGreaterThan(30)
         expect(buildings[0].height).toBeLessThan(120)
+    })
+})
+
+describe('createTransform + projectBuildings (shared scene frame)', () => {
+    const a = { nodes: [[0, 0], [0.001, 0], [0.001, 0.001]], height: 3, elevation: 10 }
+    const b = { nodes: [[0.01, 0.01], [0.011, 0.01], [0.011, 0.011]], height: 3, elevation: 25 }
+
+    it('projects disjoint batches consistently through one shared transform', () => {
+        // The chunk-loading invariant: projecting A and B separately through
+        // the same transform must give the exact same result as projecting
+        // them together.
+        const transform = createTransform(getGeoBounds([a, b]), { elevationBase: 10 })
+
+        const [aAlone] = projectBuildings([a], transform)
+        const [bAlone] = projectBuildings([b], transform)
+        const [aTogether, bTogether] = projectBuildings([a, b], transform)
+
+        expect(aAlone).toEqual(aTogether)
+        expect(bAlone).toEqual(bTogether)
+    })
+
+    it('keeps a shared elevation baseline across batches', () => {
+        const transform = createTransform(getGeoBounds([a, b]), { elevationBase: 10 })
+        const [pa] = projectBuildings([a], transform)
+        const [pb] = projectBuildings([b], transform)
+
+        expect(pa.elevation).toBe(0) // at the baseline
+        expect(pb.elevation).toBeCloseTo(15 * transform.verticalScale, 10) // 15m above it
+    })
+
+    it('getMinElevation ignores missing elevations and is Infinity when none exist', () => {
+        expect(getMinElevation([{ elevation: 5 }, { elevation: null }, { elevation: 2 }])).toBe(2)
+        expect(getMinElevation([{ elevation: null }, {}])).toBe(Infinity)
+        expect(getMinElevation([])).toBe(Infinity)
     })
 })

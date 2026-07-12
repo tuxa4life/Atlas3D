@@ -93,22 +93,12 @@ export const getGeoBounds = (buildings) => {
     )
 }
 
-// Projects buildings into normalized Web-Mercator world space (the same
-// projection map tiles use, so the ground raster aligns pixel-perfectly),
-// then scales into scene units. Returns the transform so other layers (the
-// map ground) can be placed in the identical scene frame.
-export const scaleCoordinates = (buildings, options = {}) => {
-    const { targetSize = 3000, metersPerLevel = 24 } = options
-
-    if (!buildings?.length) {
-        return { buildings: [], transform: null, geoBounds: null }
-    }
-
-    const geoBounds = getGeoBounds(buildings)
-    const minElevation = buildings.reduce(
-        (min, b) => (b.elevation != null ? Math.min(min, b.elevation) : min),
-        Infinity
-    )
+// Anchor of the scene frame: where the scene origin sits in normalized
+// Web-Mercator world space and how world units / real meters convert into
+// scene units. Created ONCE per model; every batch of buildings (and, later,
+// every chunk) projected through the same transform lands in the same frame.
+export const createTransform = (geoBounds, options = {}) => {
+    const { targetSize = 3000, metersPerLevel = 24, elevationBase = Infinity } = options
 
     const [wxMin, wyMin] = lonLatToWorld(geoBounds.minLon, geoBounds.maxLat) // NW corner
     const [wxMax, wyMax] = lonLatToWorld(geoBounds.maxLon, geoBounds.minLat) // SE corner
@@ -125,7 +115,22 @@ export const scaleCoordinates = (buildings, options = {}) => {
     const metersPerWorldUnit = EARTH_CIRCUMFERENCE * Math.cos((centerLat * Math.PI) / 180)
     const verticalScale = scale / metersPerWorldUnit // scene units per real meter
 
-    const scaledBuildings = buildings.map((building) => {
+    return { centerWx, centerWy, scale, verticalScale, metersPerLevel, minElevation: elevationBase }
+}
+
+// Baseline for relative building elevations (scene y=0). Infinity when no
+// building carries an elevation — projectBuildings then keeps everything at 0.
+export const getMinElevation = (buildings) =>
+    (buildings || []).reduce((min, b) => (b.elevation != null ? Math.min(min, b.elevation) : min), Infinity)
+
+// Projects processed buildings (lon/lat nodes, height in levels, elevation in
+// meters) into the scene frame defined by `transform`. Pure per building, so
+// disjoint batches projected through one shared transform are mutually
+// consistent — the property chunked loading will rely on.
+export const projectBuildings = (buildings, transform) => {
+    const { centerWx, centerWy, scale, verticalScale, metersPerLevel, minElevation } = transform
+
+    return buildings.map((building) => {
         const scaledNodes = building.nodes.map(([lon, lat]) => {
             const [wx, wy] = lonLatToWorld(lon, lat)
             // Same axis conventions the renderer already uses: x behaves like
@@ -147,10 +152,22 @@ export const scaleCoordinates = (buildings, options = {}) => {
             elevation: y,
         }
     })
+}
+
+// Convenience one-shot: derive a fresh transform from this batch's own bounds
+// and project through it. Equivalent to createTransform + projectBuildings —
+// use those directly when several batches must share one frame.
+export const scaleCoordinates = (buildings, options = {}) => {
+    if (!buildings?.length) {
+        return { buildings: [], transform: null, geoBounds: null }
+    }
+
+    const geoBounds = getGeoBounds(buildings)
+    const transform = createTransform(geoBounds, { ...options, elevationBase: getMinElevation(buildings) })
 
     return {
-        buildings: scaledBuildings,
-        transform: { centerWx, centerWy, scale, verticalScale, minElevation },
+        buildings: projectBuildings(buildings, transform),
+        transform,
         geoBounds,
     }
 }

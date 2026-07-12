@@ -8,7 +8,7 @@ import { useError } from "../Context/ErrorContext"
 import { reverseGeocodeService } from "../services/apiService"
 
 const CitySelector = ({ setMapOpen }) => {
-    const { setSelectedCity, setElevated, setShowMap } = useData()
+    const { setSelectedCity, elevated, setElevated, showMap, setShowMap } = useData()
     const { showError, setLoaderMessage, setLoaderState } = useError()
     const [open, setOpen] = useState(true)
 
@@ -85,8 +85,8 @@ const CitySelector = ({ setMapOpen }) => {
         <Button label='Use my location' onClick={useMyLocation} />
 
         <div style={{ margin: '16px 0 0 0', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <Checkbox label='Ignore elevation' onChange={(checked) => setElevated(!checked)} />
-            <Checkbox label='Show map ground' defaultChecked onChange={(checked) => setShowMap(checked)} />
+            <Checkbox label='Ignore elevation (E)' checked={!elevated} onChange={(checked) => setElevated(!checked)} />
+            <Checkbox label='Show map ground (M)' checked={showMap} onChange={(checked) => setShowMap(checked)} />
         </div>
 
         <Button type="primary" label='Select from the map' onClick={() => setMapOpen(true)} />

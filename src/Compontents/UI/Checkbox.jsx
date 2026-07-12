@@ -1,11 +1,15 @@
 import { useState } from 'react'
 
-const Checkbox = ({ label, onChange = () => {}, defaultChecked = false }) => {
-    const [checked, setChecked] = useState(defaultChecked)
+// Controlled when a `checked` prop is passed (state lives in the parent, so
+// external toggles like hotkeys stay in sync); otherwise self-managed.
+const Checkbox = ({ label, onChange = () => {}, defaultChecked = false, checked }) => {
+    const [internalChecked, setInternalChecked] = useState(defaultChecked)
+    const isControlled = checked !== undefined
+    const value = isControlled ? checked : internalChecked
 
     const handleChange = (e) => {
         const newValue = e.target.checked
-        setChecked(newValue)
+        if (!isControlled) setInternalChecked(newValue)
         onChange(newValue)
     }
 
@@ -14,7 +18,7 @@ const Checkbox = ({ label, onChange = () => {}, defaultChecked = false }) => {
             <input
                 type="checkbox"
                 className="ui-checkbox__box"
-                checked={checked}
+                checked={value}
                 onChange={handleChange}
             />
             <span className="ui-checkbox__label">{label}</span>

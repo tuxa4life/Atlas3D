@@ -9,6 +9,8 @@ import Loading from './Compontents/Loading';
 import './Compontents/UI/Styles/App.css'
 import './Compontents/UI/Styles/UI.css'
 import OSMap from './Compontents/OSMap';
+import SearchPalette from './Compontents/SearchPalette';
+import ControlsHud from './Compontents/ControlsHud';
 
 const App = () => {
     const [welcomeOpen, setWelcomeOpen] = useState(true)
@@ -24,6 +26,8 @@ const App = () => {
 
         <CitySelector setMapOpen={setMapOpen} />
         <ThreeScene />
+        <ControlsHud />
+        <SearchPalette />
 
         { mapOpen &&  <OSMap setMapOpen={setMapOpen}/>}
     </div>

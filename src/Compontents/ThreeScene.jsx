@@ -1,10 +1,20 @@
 import { useEffect, useRef, useCallback } from "react";
 import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { PointerLockControls } from "three/addons/controls/PointerLockControls.js";
 import * as BufferGeometryUtils from "three/addons/utils/BufferGeometryUtils.js";
 import { useData } from "../Context/DataContext";
 import { useError } from "../Context/ErrorContext";
+import { useControls } from "../Context/ControlsContext";
 import { worldToScene } from "../utils/dataFunctions";
+
+// Free-fly navigation tuning (scene units; the model spans ~3000 across).
+const FLY = {
+    defaultSpeed: 300, // units/second
+    minSpeed: 15,
+    maxSpeed: 6000,
+    speedStep: 1.15, // multiplier per wheel notch
+    pointerSpeed: 0.7, // mouse-look sensitivity
+};
 
 import sampleBuildings from "../constants/sampleCity.json";
 const SCENE_CONFIG = {
@@ -23,11 +33,6 @@ const SCENE_CONFIG = {
             intensity: 1,
             position: { x: -300, y: 500, z: -200 },
         },
-    },
-    controls: {
-        enableDamping: true,
-        dampingFactor: 0.1,
-        maxPolarAngle: Math.PI / 2,
     },
     material: {
         color: "#E8E8E8",
@@ -60,6 +65,13 @@ const ThreeScene = () => {
 
     const { buildings, elevated, ground, transform, showMap } = useData();
     const { setLoaderState, setLoaderMessage } = useError();
+    const { setLocked, setSpeed, paletteOpen } = useControls();
+
+    // Fly state that the render loop reads without re-subscribing to React.
+    const pressedKeysRef = useRef(new Set());
+    const flySpeedRef = useRef(FLY.defaultSpeed);
+    const paletteOpenRef = useRef(paletteOpen);
+    paletteOpenRef.current = paletteOpen;
 
     const createCity = useCallback(
         (buildingsData) => {
@@ -364,11 +376,64 @@ const ThreeScene = () => {
         sunLight.position.set(sunPos.x, sunPos.y, sunPos.z);
         scene.add(sunLight);
 
-        const controls = new OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = SCENE_CONFIG.controls.enableDamping;
-        controls.dampingFactor = SCENE_CONFIG.controls.dampingFactor;
-        controls.maxPolarAngle = SCENE_CONFIG.controls.maxPolarAngle;
+        // Free-fly: PointerLockControls handles mouse-look + lock lifecycle;
+        // WASD/Space/Shift movement is applied per frame below.
+        const controls = new PointerLockControls(camera, renderer.domElement);
+        controls.pointerSpeed = FLY.pointerSpeed;
         controlsRef.current = controls;
+
+        const onLock = () => {
+            setLocked(true);
+            setSpeed(Math.round(flySpeedRef.current));
+        };
+        const onUnlock = () => {
+            setLocked(false);
+            pressedKeysRef.current.clear(); // avoid keys sticking after Esc
+        };
+        controls.addEventListener("lock", onLock);
+        controls.addEventListener("unlock", onUnlock);
+
+        const MOVE_CODES = new Set([
+            "KeyW", "KeyS", "KeyA", "KeyD", "Space", "ShiftLeft", "ShiftRight",
+        ]);
+        const isTypingTarget = (el) =>
+            !!el &&
+            (el.tagName === "INPUT" ||
+                el.tagName === "TEXTAREA" ||
+                el.tagName === "SELECT" ||
+                el.isContentEditable);
+
+        const onKeyDown = (e) => {
+            if (paletteOpenRef.current || isTypingTarget(e.target)) return;
+            if (!MOVE_CODES.has(e.code)) return;
+            if (e.code === "Space") e.preventDefault(); // don't page-scroll
+            pressedKeysRef.current.add(e.code);
+            // Pressing a movement key engages fly mode (keydown is a user
+            // gesture, so the pointer-lock request is allowed).
+            if (!controls.isLocked) controls.lock();
+        };
+        const onKeyUp = (e) => pressedKeysRef.current.delete(e.code);
+
+        const onWheel = (e) => {
+            if (!controls.isLocked) return;
+            e.preventDefault();
+            const factor = e.deltaY < 0 ? FLY.speedStep : 1 / FLY.speedStep;
+            flySpeedRef.current = THREE.MathUtils.clamp(
+                flySpeedRef.current * factor,
+                FLY.minSpeed,
+                FLY.maxSpeed,
+            );
+            setSpeed(Math.round(flySpeedRef.current));
+        };
+
+        const onCanvasClick = () => {
+            if (!paletteOpenRef.current && !controls.isLocked) controls.lock();
+        };
+
+        window.addEventListener("keydown", onKeyDown);
+        window.addEventListener("keyup", onKeyUp);
+        renderer.domElement.addEventListener("wheel", onWheel, { passive: false });
+        renderer.domElement.addEventListener("click", onCanvasClick);
 
         const compass = createCompassOverlay();
         if (compass) {
@@ -377,15 +442,48 @@ const ThreeScene = () => {
         }
 
         // Dev-only handle for debugging/inspection (e.g. grabbing a frame
-        // when OS-level screenshots of the WebGL canvas are unavailable).
+        // when OS-level screenshots of the WebGL canvas are unavailable, or
+        // exercising the fly loop without a real pointer lock).
         if (import.meta.env.DEV) {
-            window.__atlas = { renderer, scene, camera };
+            window.__atlas = {
+                renderer,
+                scene,
+                camera,
+                controls,
+                pressedKeys: pressedKeysRef.current,
+                flySpeedRef,
+            };
         }
 
+        const clock = new THREE.Clock();
         const dirVec = new THREE.Vector3();
+        const forward = new THREE.Vector3();
+        const right = new THREE.Vector3();
+        const move = new THREE.Vector3();
+        const WORLD_UP = new THREE.Vector3(0, 1, 0);
+
         const animate = () => {
             animationFrameRef.current = requestAnimationFrame(animate);
-            controls.update();
+            const dt = clock.getDelta();
+
+            if (controls.isLocked && !paletteOpenRef.current) {
+                const keys = pressedKeysRef.current;
+                controls.getDirection(forward); // unit look direction (with pitch)
+                right.crossVectors(forward, WORLD_UP).normalize();
+
+                move.set(0, 0, 0);
+                if (keys.has("KeyW")) move.add(forward);
+                if (keys.has("KeyS")) move.sub(forward);
+                if (keys.has("KeyD")) move.add(right);
+                if (keys.has("KeyA")) move.sub(right);
+                if (keys.has("Space")) move.add(WORLD_UP);
+                if (keys.has("ShiftLeft") || keys.has("ShiftRight")) move.sub(WORLD_UP);
+
+                if (move.lengthSq() > 0) {
+                    move.normalize();
+                    camera.position.addScaledVector(move, flySpeedRef.current * dt);
+                }
+            }
 
             if (cityMeshRef.current && buildProgressRef.current < 1) {
                 buildProgressRef.current += 0.001;
@@ -412,8 +510,23 @@ const ThreeScene = () => {
 
         window.addEventListener("resize", handleResize);
 
-        return cleanup;
-    }, [createSkybox, createCompassOverlay, handleResize, cleanup]);
+        return () => {
+            controls.removeEventListener("lock", onLock);
+            controls.removeEventListener("unlock", onUnlock);
+            window.removeEventListener("keydown", onKeyDown);
+            window.removeEventListener("keyup", onKeyUp);
+            renderer.domElement.removeEventListener("wheel", onWheel);
+            renderer.domElement.removeEventListener("click", onCanvasClick);
+            cleanup();
+        };
+    }, [createSkybox, createCompassOverlay, handleResize, cleanup, setLocked, setSpeed]);
+
+    // Opening the search palette releases the pointer so typing works.
+    useEffect(() => {
+        if (paletteOpen && controlsRef.current?.isLocked) {
+            controlsRef.current.unlock();
+        }
+    }, [paletteOpen]);
 
     // Rebuild only the city mesh when the buildings change; the rest of the
     // scene stays alive.

@@ -11,16 +11,16 @@ const Welcome = ({ close }) => {
             <h2 style={{ paddingBottom: '5px', fontSize: 'clamp(20px, 4vw, 28px)' }}>Navigation</h2>
             <ul style={{ listStyle: 'none', padding: '0', margin: '0' }}>
                 <li style={{ display: 'flex', alignItems: 'center', marginTop: '10px', width: '100%', fontSize: 'clamp(14px, 3vw, 18px)' }}>
-                    <Scroll style={{ height: 'clamp(24px, 5vw, 30px)', width: 'clamp(24px, 5vw, 30px)', marginRight: '10px', flexShrink: 0 }} />
-                    Scroll - zoom in/out
-                </li>
-                <li style={{ display: 'flex', alignItems: 'center', marginTop: '10px', width: '100%', fontSize: 'clamp(14px, 3vw, 18px)' }}>
                     <LeftClick style={{ height: 'clamp(24px, 5vw, 30px)', width: 'clamp(24px, 5vw, 30px)', marginRight: '10px', flexShrink: 0 }} />
-                    Left click & hold - rotate
+                    Click the scene (or press W) to start flying
                 </li>
                 <li style={{ display: 'flex', alignItems: 'center', marginTop: '10px', width: '100%', fontSize: 'clamp(14px, 3vw, 18px)' }}>
                     <RightClick style={{ height: 'clamp(24px, 5vw, 30px)', width: 'clamp(24px, 5vw, 30px)', marginRight: '10px', flexShrink: 0 }} />
-                    Right Click - Move
+                    WASD move · mouse look · Space/Shift up/down
+                </li>
+                <li style={{ display: 'flex', alignItems: 'center', marginTop: '10px', width: '100%', fontSize: 'clamp(14px, 3vw, 18px)' }}>
+                    <Scroll style={{ height: 'clamp(24px, 5vw, 30px)', width: 'clamp(24px, 5vw, 30px)', marginRight: '10px', flexShrink: 0 }} />
+                    Scroll speed · <b style={{ margin: '0 4px' }}>/</b> search · <b style={{ margin: '0 4px' }}>Esc</b> free cursor
                 </li>
             </ul>
         </div>

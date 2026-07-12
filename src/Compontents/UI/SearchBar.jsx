@@ -4,7 +4,7 @@ import { useError } from '../../Context/ErrorContext'
 
 const LISTBOX_ID = 'city-search-listbox'
 
-const SearchBar = ({ placeholder = 'Search for a city...', onSelect }) => {
+const SearchBar = ({ placeholder = 'Search for a city...', onSelect, autoFocus = false }) => {
     const { showError } = useError()
     const [inputValue, setInputValue] = useState('')
     const [results, setResults] = useState([])
@@ -14,6 +14,7 @@ const SearchBar = ({ placeholder = 'Search for a city...', onSelect }) => {
 
     const wrapperRef = useRef(null)
     const listRef = useRef(null)
+    const inputRef = useRef(null)
     const debounceRef = useRef(null)
     const requestIdRef = useRef(0)
 
@@ -24,6 +25,10 @@ const SearchBar = ({ placeholder = 'Search for a city...', onSelect }) => {
         document.addEventListener('mousedown', handleClickOutside)
         return () => document.removeEventListener('mousedown', handleClickOutside)
     }, [])
+
+    useEffect(() => {
+        if (autoFocus) inputRef.current?.focus()
+    }, [autoFocus])
 
     useEffect(() => () => clearTimeout(debounceRef.current), [])
 
@@ -113,6 +118,7 @@ const SearchBar = ({ placeholder = 'Search for a city...', onSelect }) => {
     return (
         <div ref={wrapperRef} style={{ position: 'relative', width: '300px', maxWidth: '100%' }}>
             <input
+                ref={inputRef}
                 type="text"
                 className="city-search-input"
                 role="combobox"

@@ -7,6 +7,7 @@ import Message from './Compontents/Message';
 import { useError } from './Context/ErrorContext';
 import Loading from './Compontents/Loading';
 import './Compontents/UI/Styles/App.css'
+import './Compontents/UI/Styles/UI.css'
 import OSMap from './Compontents/OSMap';
 
 const App = () => {

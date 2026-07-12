@@ -1,4 +1,5 @@
 import { DEFAULT_BUILDING_LEVELS, OVERPASS_TIMEOUT } from '../constants/dataConstants'
+import { lonLatToWorld, EARTH_CIRCUMFERENCE } from './mercator'
 
 export const calculateCenterCoordinates = (coords) => {
     if (!coords.length) return null
@@ -62,14 +63,13 @@ export const returnQuery = (data, type) => {
     }
 }
 
-export const scaleCoordinates = (buildings, options = {}) => {
-    const { targetSize = 3000, centerOrigin = true, metersPerLevel = 24 } = options
+// lon/lat bounds of a set of processed buildings (pre-scaling). Used both by
+// scaleCoordinates and to kick off the map-tile fetch in parallel with the
+// elevation fetch.
+export const getGeoBounds = (buildings) => {
+    if (!buildings?.length) return null
 
-    if (!buildings?.length) {
-        return { buildings: [], bounds: null, scale: 1 }
-    }
-
-    const bounds = buildings.reduce(
+    return buildings.reduce(
         (acc, building) => {
             building.nodes.forEach(([lon, lat]) => {
                 acc.minLon = Math.min(acc.minLon, lon)
@@ -77,50 +77,59 @@ export const scaleCoordinates = (buildings, options = {}) => {
                 acc.minLat = Math.min(acc.minLat, lat)
                 acc.maxLat = Math.max(acc.maxLat, lat)
             })
-            if (building.elevation != null) {
-                acc.minElevation = Math.min(acc.minElevation, building.elevation)
-            }
             return acc
         },
-        {
-            minLon: Infinity,
-            maxLon: -Infinity,
-            minLat: Infinity,
-            maxLat: -Infinity,
-            minElevation: Infinity,
-        }
+        { minLon: Infinity, maxLon: -Infinity, minLat: Infinity, maxLat: -Infinity }
+    )
+}
+
+// Projects buildings into normalized Web-Mercator world space (the same
+// projection map tiles use, so the ground raster aligns pixel-perfectly),
+// then scales into scene units. Returns the transform so other layers (the
+// map ground) can be placed in the identical scene frame.
+export const scaleCoordinates = (buildings, options = {}) => {
+    const { targetSize = 3000, metersPerLevel = 24 } = options
+
+    if (!buildings?.length) {
+        return { buildings: [], transform: null, geoBounds: null }
+    }
+
+    const geoBounds = getGeoBounds(buildings)
+    const minElevation = buildings.reduce(
+        (min, b) => (b.elevation != null ? Math.min(min, b.elevation) : min),
+        Infinity
     )
 
-    const centerLon = (bounds.minLon + bounds.maxLon) / 2
-    const centerLat = (bounds.minLat + bounds.maxLat) / 2
-    const lonSpan = bounds.maxLon - bounds.minLon
-    const latSpan = bounds.maxLat - bounds.minLat
+    const [wxMin, wyMin] = lonLatToWorld(geoBounds.minLon, geoBounds.maxLat) // NW corner
+    const [wxMax, wyMax] = lonLatToWorld(geoBounds.maxLon, geoBounds.minLat) // SE corner
 
-    const latToMeters = 111320
-    const lonToMeters = 111320 * Math.cos((centerLat * Math.PI) / 180)
+    const centerWx = (wxMin + wxMax) / 2
+    const centerWy = (wyMin + wyMax) / 2
+    const maxSpanWorld = Math.max(wxMax - wxMin, wyMax - wyMin)
+    const scale = targetSize / maxSpanWorld // scene units per world unit
 
-    const widthMeters = lonSpan * lonToMeters
-    const heightMeters = latSpan * latToMeters
-    const maxSpanMeters = Math.max(widthMeters, heightMeters)
-    const scale = targetSize / maxSpanMeters
+    // Mercator world units -> ground meters shrink with latitude; heights and
+    // elevations are real meters, so they get their own scale to keep the
+    // buildings' proportions correct.
+    const centerLat = (geoBounds.minLat + geoBounds.maxLat) / 2
+    const metersPerWorldUnit = EARTH_CIRCUMFERENCE * Math.cos((centerLat * Math.PI) / 180)
+    const verticalScale = scale / metersPerWorldUnit // scene units per real meter
 
     const scaledBuildings = buildings.map((building) => {
         const scaledNodes = building.nodes.map(([lon, lat]) => {
-            let x = (lon - centerLon) * lonToMeters * scale
-            let z = (lat - centerLat) * latToMeters * scale
-
-            if (!centerOrigin) {
-                x += targetSize / 2
-                z += targetSize / 2
-            }
-
+            const [wx, wy] = lonLatToWorld(lon, lat)
+            // Same axis conventions the renderer already uses: x behaves like
+            // longitude (east+), the second component like latitude (north+),
+            // hence the sign flip on wy (which grows south).
+            const x = (wx - centerWx) * scale
+            const z = -(wy - centerWy) * scale
             return [x, z]
         })
 
-        const y = building.elevation != null ? (building.elevation - bounds.minElevation) * scale : 0
+        const y = building.elevation != null ? (building.elevation - minElevation) * verticalScale : 0
 
-        const levelsToMeters = (building.height || 12) * metersPerLevel
-        const scaledHeight = levelsToMeters * scale
+        const levelsToMeters = (building.height || DEFAULT_BUILDING_LEVELS) * metersPerLevel
+        const scaledHeight = levelsToMeters * verticalScale
 
         return {
             nodes: scaledNodes,
@@ -129,13 +138,17 @@ export const scaleCoordinates = (buildings, options = {}) => {
         }
     })
 
-    return scaledBuildings
+    return {
+        buildings: scaledBuildings,
+        transform: { centerWx, centerWy, scale, verticalScale, minElevation },
+        geoBounds,
+    }
 }
 
 export const processBuildings = (elements) => {
     return elements.map((element) => ({
         nodes: element.geometry.map((e) => [e.lon, e.lat]),
-        height: element.tags?.['building:levels'] ?? DEFAULT_BUILDING_LEVELS,
+        height: parseInt(element.tags?.['building:levels'], 10) || DEFAULT_BUILDING_LEVELS,
         center: calculateCenterCoordinates(element.geometry),
     }))
 }

@@ -5,11 +5,11 @@ import Button from './UI/Button'
 import AreaSelector from './AreaSelector'
 import { useData } from '../Context/DataContext'
 
-const OSMap = ({ setMapOpen, onAreaSubmit }) => {
+const OSMap = ({ setMapOpen }) => {
     const [isSelecting, setIsSelecting] = useState(false)
     const [selectedArea, setSelectedArea] = useState(null)
 
-    const { fetchBuildings } = useData()
+    const { fetchBuildings, setModelName } = useData()
 
     const handleAreaSelected = (bounds) => setSelectedArea(bounds)
 
@@ -23,7 +23,7 @@ const OSMap = ({ setMapOpen, onAreaSubmit }) => {
             bottomRight: { lat: Math.min(a[0], b[0]), lng: Math.max(a[1], b[1]) }
         }
 
-        onAreaSubmit?.(coordinates)
+        setModelName('custom-area')
         fetchBuildings(coordinates, 'custom')
         setMapOpen(false)
     }

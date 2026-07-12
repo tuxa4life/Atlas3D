@@ -1,7 +1,9 @@
-import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useError } from './ErrorContext'
-import { getCenters, processBuildings, returnQuery, scaleCoordinates } from '../utils/dataFunctions'
+import { getCenters, getGeoBounds, processBuildings, returnQuery, scaleCoordinates } from '../utils/dataFunctions'
 import { fetchElevationsService, fetchWithRetryService, postOverpassService } from '../services/apiService'
+import { fetchGroundTextureService } from '../services/mapTileService'
+import { MAX_BUILDINGS } from '../constants/dataConstants'
 
 const DataContext = createContext()
 
@@ -12,6 +14,15 @@ const DataProvider = ({ children }) => {
     const [selectedCity, setSelectedCity] = useState(-1)
     const [mesh, setMesh] = useState(null)
     const [elevated, setElevated] = useState(true)
+    const [modelName, setModelName] = useState('')
+    // Map ground: stitched OSM raster + the scene transform to place it under
+    // the buildings, and a visibility toggle.
+    const [ground, setGround] = useState(null)
+    const [transform, setTransform] = useState(null)
+    const [showMap, setShowMap] = useState(true)
+
+    // Monotonic id so a slower earlier request can't overwrite a newer selection.
+    const requestIdRef = useRef(0)
 
     const fetchWithRetry = useCallback(async (fetchFn, maxRetries, baseDelay) => await fetchWithRetryService(fetchFn, maxRetries, baseDelay, showError), [showError])
 
@@ -35,6 +46,9 @@ const DataProvider = ({ children }) => {
     )
 
     const fetchBuildings = useCallback(async (cityId, type) => {
+            const requestId = ++requestIdRef.current
+            const isStale = () => requestId !== requestIdRef.current
+
             setLoaderState(true)
             setLoaderMessage('Fetching building nodes...')
 
@@ -42,15 +56,34 @@ const DataProvider = ({ children }) => {
 
             try {
                 const elements = await fetchWithRetry(() => postOverpassService(query))
+                if (isStale()) return
 
-                const processedBuildings = processBuildings(elements)
+                let processedBuildings = processBuildings(elements)
+                if (processedBuildings.length > MAX_BUILDINGS) {
+                    showError(`Large area: showing the first ${MAX_BUILDINGS.toLocaleString()} of ${processedBuildings.length.toLocaleString()} buildings.`, 5000)
+                    processedBuildings = processedBuildings.slice(0, MAX_BUILDINGS)
+                }
+
+                // Tile stitching only needs lon/lat bounds, so it runs in
+                // parallel with the elevation fetch. A tile failure degrades to
+                // no ground rather than failing the model.
+                const geoBounds = getGeoBounds(processedBuildings)
                 const centers = getCenters(processedBuildings)
-                const elevations = await fetchElevations(centers)
-                const processedElevatedBuildings = processedBuildings.map((b, i) => ({ ...b, elevation: elevations[i]?.elevation }))
-                const scaledBuildings = scaleOSMCoordinates(processedElevatedBuildings)
+                const [elevations, groundData] = await Promise.all([
+                    fetchElevations(centers),
+                    fetchGroundTextureService(geoBounds, showError),
+                ])
+                if (isStale()) return
 
-                setBuildings(scaledBuildings)
+                const processedElevatedBuildings = processedBuildings.map((b, i) => ({ ...b, elevation: elevations[i]?.elevation }))
+                const scaled = scaleOSMCoordinates(processedElevatedBuildings)
+
+                if (isStale()) return
+                setTransform(scaled.transform)
+                setGround(groundData)
+                setBuildings(scaled.buildings)
             } catch (err) {
+                if (isStale()) return
                 setLoaderState(false)
                 const detail = err.isOverpassBusy ? err.message : `Error ${err.response?.status || err.status || err.message} while fetching buildings.`
                 showError(detail)
@@ -75,8 +108,14 @@ const DataProvider = ({ children }) => {
             elevated,
             setElevated,
             fetchBuildings,
+            modelName,
+            setModelName,
+            ground,
+            transform,
+            showMap,
+            setShowMap,
         }),
-        [mesh, buildings, elevated, fetchBuildings]
+        [mesh, buildings, elevated, fetchBuildings, modelName, ground, transform, showMap]
     )
 
     return <DataContext.Provider value={contextValue}>{children}</DataContext.Provider>

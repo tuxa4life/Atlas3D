@@ -2,14 +2,18 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { searchPlacesService } from '../../services/apiService'
 import { useError } from '../../Context/ErrorContext'
 
+const LISTBOX_ID = 'city-search-listbox'
+
 const SearchBar = ({ placeholder = 'Search for a city...', onSelect }) => {
     const { showError } = useError()
     const [inputValue, setInputValue] = useState('')
     const [results, setResults] = useState([])
     const [isOpen, setIsOpen] = useState(false)
     const [isLoading, setIsLoading] = useState(false)
+    const [activeIndex, setActiveIndex] = useState(-1)
 
     const wrapperRef = useRef(null)
+    const listRef = useRef(null)
     const debounceRef = useRef(null)
     const requestIdRef = useRef(0)
 
@@ -23,6 +27,13 @@ const SearchBar = ({ placeholder = 'Search for a city...', onSelect }) => {
 
     useEffect(() => () => clearTimeout(debounceRef.current), [])
 
+    // Keep the highlighted option scrolled into view.
+    useEffect(() => {
+        if (activeIndex < 0 || !listRef.current) return
+        const el = listRef.current.children[activeIndex]
+        if (el) el.scrollIntoView({ block: 'nearest' })
+    }, [activeIndex])
+
     const runSearch = useCallback(async (query) => {
         const requestId = ++requestIdRef.current
         setIsLoading(true)
@@ -33,6 +44,7 @@ const SearchBar = ({ placeholder = 'Search for a city...', onSelect }) => {
         if (requestId !== requestIdRef.current) return
 
         setResults(found)
+        setActiveIndex(-1)
         setIsLoading(false)
         setIsOpen(true)
     }, [showError])
@@ -41,6 +53,7 @@ const SearchBar = ({ placeholder = 'Search for a city...', onSelect }) => {
         const value = e.target.value
         setInputValue(value)
         setIsOpen(true)
+        setActiveIndex(-1)
 
         clearTimeout(debounceRef.current)
 
@@ -57,8 +70,28 @@ const SearchBar = ({ placeholder = 'Search for a city...', onSelect }) => {
     const handleSelect = (option) => {
         setInputValue(option.text)
         setResults([])
+        setActiveIndex(-1)
         setIsOpen(false)
         if (onSelect) onSelect(option.value)
+    }
+
+    const handleKeyDown = (e) => {
+        if (e.key === 'ArrowDown') {
+            e.preventDefault()
+            if (!isOpen) setIsOpen(true)
+            if (results.length) setActiveIndex((i) => (i + 1) % results.length)
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault()
+            if (results.length) setActiveIndex((i) => (i <= 0 ? results.length - 1 : i - 1))
+        } else if (e.key === 'Enter') {
+            if (activeIndex >= 0 && results[activeIndex]) {
+                e.preventDefault()
+                handleSelect(results[activeIndex])
+            }
+        } else if (e.key === 'Escape') {
+            setIsOpen(false)
+            setActiveIndex(-1)
+        }
     }
 
     const dropdownBase = {
@@ -74,13 +107,23 @@ const SearchBar = ({ placeholder = 'Search for a city...', onSelect }) => {
         zIndex: 1000,
     }
 
+    const showResults = isOpen && !isLoading && results.length > 0
+    const showEmpty = isOpen && !isLoading && inputValue.trim().length >= 2 && results.length === 0
+
     return (
         <div ref={wrapperRef} style={{ position: 'relative', width: '300px', maxWidth: '100%' }}>
             <input
                 type="text"
+                className="city-search-input"
+                role="combobox"
+                aria-expanded={showResults}
+                aria-controls={LISTBOX_ID}
+                aria-autocomplete="list"
+                aria-activedescendant={activeIndex >= 0 ? `${LISTBOX_ID}-opt-${activeIndex}` : undefined}
                 value={inputValue}
                 onChange={handleInputChange}
                 onFocus={() => setIsOpen(true)}
+                onKeyDown={handleKeyDown}
                 placeholder={placeholder}
                 style={{
                     width: '100%',
@@ -103,20 +146,27 @@ const SearchBar = ({ placeholder = 'Search for a city...', onSelect }) => {
                 </div>
             )}
 
-            {isOpen && !isLoading && results.length > 0 && (
-                <div style={{ ...dropdownBase, maxHeight: '200px', overflowY: 'auto' }}>
-                    {results.map((option) => (
+            {showResults && (
+                <div
+                    ref={listRef}
+                    id={LISTBOX_ID}
+                    role="listbox"
+                    style={{ ...dropdownBase, maxHeight: '200px', overflowY: 'auto' }}
+                >
+                    {results.map((option, index) => (
                         <div
                             key={`${option.value.type}-${option.value.id}`}
+                            id={`${LISTBOX_ID}-opt-${index}`}
+                            role="option"
+                            aria-selected={index === activeIndex}
                             onClick={() => handleSelect(option)}
+                            onMouseEnter={() => setActiveIndex(index)}
                             style={{
                                 padding: '10px 12px',
                                 cursor: 'pointer',
                                 fontSize: '14px',
-                                transition: 'background-color 0.15s',
+                                backgroundColor: index === activeIndex ? '#f5f5f5' : 'transparent',
                             }}
-                            onMouseEnter={(e) => (e.target.style.backgroundColor = '#f5f5f5')}
-                            onMouseLeave={(e) => (e.target.style.backgroundColor = 'transparent')}
                         >
                             {option.text}
                         </div>
@@ -124,7 +174,7 @@ const SearchBar = ({ placeholder = 'Search for a city...', onSelect }) => {
                 </div>
             )}
 
-            {isOpen && !isLoading && inputValue.trim().length >= 2 && results.length === 0 && (
+            {showEmpty && (
                 <div style={{ ...dropdownBase, padding: '10px 12px', fontSize: '14px', color: '#999' }}>
                     No results found
                 </div>

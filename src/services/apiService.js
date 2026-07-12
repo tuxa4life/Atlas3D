@@ -143,11 +143,40 @@ export const searchPlacesService = async (query, showError) => {
                 const label = [p.name, p.state, p.country].filter(Boolean).join(', ')
                 return {
                     text: label,
-                    value: { id: p.osm_id, type: OSM_TYPE_MAP[p.osm_type] },
+                    value: { id: p.osm_id, type: OSM_TYPE_MAP[p.osm_type], name: p.name },
                 }
             })
     } catch (err) {
         showError(`Error ${err.message} while searching places.`)
         return []
+    }
+}
+
+// Reverse-geocode a lat/lon to the nearest populated place (for "use my location").
+export const reverseGeocodeService = async (lat, lon, showError) => {
+    const params = new URLSearchParams({ lat, lon, limit: '10', lang: 'en' })
+
+    try {
+        const response = await fetch(`https://photon.komoot.io/reverse?${params.toString()}`)
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`)
+        }
+
+        const data = await response.json()
+
+        // Prefer an actual city/town/village; fall back to the nearest mappable feature.
+        const features = (data.features || []).filter((f) => OSM_TYPE_MAP[f.properties?.osm_type])
+        const place =
+            features.find((f) => ['city', 'town', 'village'].includes(f.properties?.osm_value)) ||
+            features[0]
+
+        if (!place) return null
+
+        const p = place.properties
+        return { id: p.osm_id, type: OSM_TYPE_MAP[p.osm_type], name: p.name }
+    } catch (err) {
+        showError(`Error ${err.message} while locating you.`)
+        return null
     }
 }

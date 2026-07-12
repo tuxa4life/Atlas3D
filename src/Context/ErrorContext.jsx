@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback } from "react";
+import { createContext, useContext, useState, useCallback, useRef } from "react";
 
 const ErrorContext = createContext();
 const ErrorProvider = ({ children }) => {
@@ -8,6 +8,10 @@ const ErrorProvider = ({ children }) => {
 
     const [loaderMessage, setLoaderMessage] = useState("");
     const [loaderState, setLoaderState] = useState(false);
+
+    // A single shared timer so a new error resets the countdown instead of
+    // stacking timeouts that could hide a later message early.
+    const dismissTimerRef = useRef(null);
 
     const clearError = useCallback(() => {
         setErrorAnimation(false);
@@ -20,7 +24,8 @@ const ErrorProvider = ({ children }) => {
             setError(true);
             setErrorAnimation(true);
 
-            setTimeout(clearError, duration);
+            if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
+            dismissTimerRef.current = setTimeout(clearError, duration);
         },
         [clearError],
     );

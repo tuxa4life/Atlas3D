@@ -1,0 +1,84 @@
+/* Shared UI primitives. Hover/focus states live here rather than as inline
+   JS handlers so keyboard users get focus rings and the markup stays clean. */
+
+.ui-btn {
+    margin-top: 10px;
+    width: 100%;
+    padding: 10px 15px;
+    border: none;
+    border-radius: 6px;
+    backdrop-filter: blur(5px);
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 500;
+    transition: 0.3s all;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.ui-btn--basic {
+    color: black;
+    background: rgba(255, 255, 255, 0.6);
+}
+
+.ui-btn--basic:hover {
+    background: rgba(255, 255, 255, 1);
+}
+
+.ui-btn--primary {
+    color: white;
+    background: rgba(0, 123, 255, 1);
+}
+
+.ui-btn--primary:hover {
+    background: rgba(0, 123, 255, 0.6);
+}
+
+.ui-btn:focus-visible {
+    outline: 2px solid rgba(0, 123, 255, 0.85);
+    outline-offset: 2px;
+}
+
+.ui-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+    background: rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(5px);
+    padding: 8px 12px;
+    border-radius: 6px;
+    transition: 0.3s all;
+}
+
+.ui-checkbox__box {
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: 2px solid rgba(0, 0, 0, 0.3);
+    background: rgba(255, 255, 255, 0.8);
+    cursor: pointer;
+    transition: 0.3s all;
+}
+
+.ui-checkbox__box:checked {
+    background: rgba(0, 150, 255, 0.6);
+    border-color: rgba(0, 150, 255, 0.6);
+}
+
+.ui-checkbox__box:focus-visible {
+    outline: 2px solid rgba(0, 123, 255, 0.85);
+    outline-offset: 2px;
+}
+
+.ui-checkbox__label {
+    font-size: 15px;
+    color: #333;
+}
+
+.city-search-input:focus-visible {
+    border-color: #999;
+    outline: 2px solid rgba(0, 123, 255, 0.85);
+    outline-offset: 1px;
+}

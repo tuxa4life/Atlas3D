@@ -49,13 +49,18 @@ const ThreeScene = () => {
     const controlsRef = useRef(null);
     const animationFrameRef = useRef(null);
     const cityMeshRef = useRef(null);
+    const groundMeshRef = useRef(null);
     const compassRef = useRef({ container: null, arrow: null });
+    const buildProgressRef = useRef(0);
+    // Shared uniform: 1 = elevation applied, 0 = flat. Toggling only mutates
+    // .value, so the geometry never has to be rebuilt to switch modes.
+    const elevationUniformRef = useRef({ value: 1 });
 
-    const { buildings, setMesh, elevated } = useData();
+    const { buildings, setMesh, elevated, ground, transform, showMap } = useData();
     const { setLoaderState, setLoaderMessage } = useError();
 
     const createCity = useCallback(
-        (buildingsData, isElevated) => {
+        (buildingsData) => {
             setLoaderMessage("All set! Rendering 3D model...");
 
             if (!buildingsData?.length) {
@@ -105,7 +110,16 @@ const ThreeScene = () => {
                     extrudeSettings,
                 );
                 geometry.rotateX(Math.PI / 2);
-                geometry.translate(0, -elevation * (isElevated ? 1 : 0), 0);
+
+                // Store per-vertex elevation instead of baking it in, so a shader
+                // uniform can switch elevation on/off without a rebuild.
+                const vertexCount = geometry.attributes.position.count;
+                const elevationAttr = new Float32Array(vertexCount).fill(elevation);
+                geometry.setAttribute(
+                    "aElevation",
+                    new THREE.BufferAttribute(elevationAttr, 1),
+                );
+
                 geometries.push(geometry);
             }
 
@@ -123,6 +137,16 @@ const ThreeScene = () => {
             const material = new THREE.MeshStandardMaterial(
                 SCENE_CONFIG.material,
             );
+            material.onBeforeCompile = (shader) => {
+                shader.uniforms.uElevationFactor = elevationUniformRef.current;
+                shader.vertexShader =
+                    "attribute float aElevation;\nuniform float uElevationFactor;\n" +
+                    shader.vertexShader.replace(
+                        "#include <begin_vertex>",
+                        "#include <begin_vertex>\n    transformed.y += -aElevation * uElevationFactor;",
+                    );
+            };
+
             const cityMesh = new THREE.Mesh(mergedGeometry, material);
             cityMesh.rotation.z = Math.PI;
 
@@ -255,13 +279,13 @@ const ThreeScene = () => {
                     object.geometry.dispose();
                 }
                 if (object.material) {
-                    if (Array.isArray(object.material)) {
-                        object.material.forEach((material) =>
-                            material.dispose(),
-                        );
-                    } else {
-                        object.material.dispose();
-                    }
+                    const materials = Array.isArray(object.material)
+                        ? object.material
+                        : [object.material];
+                    materials.forEach((material) => {
+                        if (material.map) material.map.dispose();
+                        material.dispose();
+                    });
                 }
             });
             sceneRef.current.clear();
@@ -286,8 +310,11 @@ const ThreeScene = () => {
         cameraRef.current = null;
         rendererRef.current = null;
         cityMeshRef.current = null;
+        groundMeshRef.current = null;
     }, [handleResize]);
 
+    // Scene, camera, renderer, lights, controls and the render loop are created
+    // once on mount. Selecting a new city no longer tears any of this down.
     useEffect(() => {
         if (!mountRef.current) return;
         const scene = new THREE.Scene();
@@ -316,14 +343,6 @@ const ThreeScene = () => {
         mountRef.current.appendChild(renderer.domElement);
         rendererRef.current = renderer;
 
-        const cityMesh = createCity(buildings, elevated);
-        if (cityMesh) {
-            cityMesh.scale.y = 0.001;
-            scene.add(cityMesh);
-            cityMeshRef.current = cityMesh;
-            setMesh(cityMesh);
-        }
-
         const ambientLight = new THREE.AmbientLight(
             SCENE_CONFIG.lights.ambient.color,
             SCENE_CONFIG.lights.ambient.intensity,
@@ -350,18 +369,23 @@ const ThreeScene = () => {
             compassRef.current.arrow = compass.arrowElement;
         }
 
-        let buildProgress = 0;
+        // Dev-only handle for debugging/inspection (e.g. grabbing a frame
+        // when OS-level screenshots of the WebGL canvas are unavailable).
+        if (import.meta.env.DEV) {
+            window.__atlas = { renderer, scene, camera };
+        }
+
         const dirVec = new THREE.Vector3();
         const animate = () => {
             animationFrameRef.current = requestAnimationFrame(animate);
             controls.update();
 
-            if (cityMeshRef.current && buildProgress < 1) {
-                buildProgress += 0.001;
+            if (cityMeshRef.current && buildProgressRef.current < 1) {
+                buildProgressRef.current += 0.001;
                 cityMeshRef.current.scale.y = THREE.MathUtils.lerp(
                     cityMeshRef.current.scale.y,
                     1,
-                    buildProgress,
+                    buildProgressRef.current,
                 );
             }
 
@@ -380,21 +404,101 @@ const ThreeScene = () => {
 
         window.addEventListener("resize", handleResize);
 
+        return cleanup;
+    }, [createSkybox, createCompassOverlay, handleResize, cleanup]);
+
+    // Rebuild only the city mesh when the buildings change; the rest of the
+    // scene stays alive.
+    useEffect(() => {
+        const scene = sceneRef.current;
+        if (!scene) return;
+
+        if (cityMeshRef.current) {
+            scene.remove(cityMeshRef.current);
+            cityMeshRef.current.geometry.dispose();
+            cityMeshRef.current.material.dispose();
+            cityMeshRef.current = null;
+        }
+
+        const cityMesh = createCity(buildings);
+        if (cityMesh) {
+            cityMesh.scale.y = 0.001;
+            buildProgressRef.current = 0;
+            scene.add(cityMesh);
+            cityMeshRef.current = cityMesh;
+            setMesh(cityMesh);
+        } else {
+            setMesh(null);
+        }
+
         setLoaderState(false);
         setLoaderMessage("");
-        return cleanup;
-    }, [
-        buildings,
-        createCity,
-        createSkybox,
-        handleResize,
-        cleanup,
-        setMesh,
-        createCompassOverlay,
-        elevated,
-        setLoaderMessage,
-        setLoaderState,
-    ]);
+    }, [buildings, createCity, setMesh, setLoaderState, setLoaderMessage]);
+
+    // Map ground: a textured plane spanning the stitched tiles' exact
+    // web-mercator bounds. The transforms below reproduce the buildings'
+    // world mapping (east = -X, north = +Z), so streets land under their
+    // footprints. Rebuilt only when a new city/ground arrives.
+    useEffect(() => {
+        const scene = sceneRef.current;
+        if (!scene) return;
+
+        if (groundMeshRef.current) {
+            scene.remove(groundMeshRef.current);
+            groundMeshRef.current.geometry.dispose();
+            if (groundMeshRef.current.material.map) {
+                groundMeshRef.current.material.map.dispose();
+            }
+            groundMeshRef.current.material.dispose();
+            groundMeshRef.current = null;
+        }
+
+        if (!ground || !transform) return;
+
+        const { wxMin, wyMin, wxMax, wyMax } = ground.tileWorldBounds;
+        const { centerWx, centerWy, scale } = transform;
+
+        const geometry = new THREE.PlaneGeometry(
+            (wxMax - wxMin) * scale,
+            (wyMax - wyMin) * scale,
+        );
+        geometry.rotateX(Math.PI / 2); // lay flat; canvas top row (north) -> +Z
+        geometry.scale(-1, 1, 1); // east -> -X, matching the building projection
+        geometry.translate(
+            -((wxMin + wxMax) / 2 - centerWx) * scale,
+            0,
+            -((wyMin + wyMax) / 2 - centerWy) * scale,
+        );
+
+        const texture = new THREE.CanvasTexture(ground.canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        if (rendererRef.current) {
+            texture.anisotropy = Math.min(
+                8,
+                rendererRef.current.capabilities.getMaxAnisotropy(),
+            );
+        }
+
+        // Unlit so the map reads at full brightness regardless of lighting.
+        const material = new THREE.MeshBasicMaterial({
+            map: texture,
+            side: THREE.DoubleSide,
+        });
+
+        const groundMesh = new THREE.Mesh(geometry, material);
+        groundMesh.position.y = -1; // just below building bases; avoids z-fighting
+        scene.add(groundMesh);
+        groundMeshRef.current = groundMesh;
+    }, [ground, transform]);
+
+    useEffect(() => {
+        if (groundMeshRef.current) groundMeshRef.current.visible = showMap;
+    }, [showMap, ground]);
+
+    // Elevation is a shader uniform, so toggling is instant — no rebuild.
+    useEffect(() => {
+        elevationUniformRef.current.value = elevated ? 1 : 0;
+    }, [elevated]);
 
     return (
         <div

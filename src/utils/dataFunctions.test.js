@@ -8,6 +8,7 @@ import {
     projectBuildings,
     getMinElevation,
     getGeoBounds,
+    worldToScene,
 } from './dataFunctions'
 import { DEFAULT_BUILDING_LEVELS } from '../constants/dataConstants'
 
@@ -185,13 +186,13 @@ describe('scaleCoordinates', () => {
         expect(geoBounds).toEqual({ minLon: 0, maxLon: 0.01, minLat: 0, maxLat: 0.01 })
     })
 
-    it('keeps the renderer axis conventions: east -> +x, north -> +second coord', () => {
+    it('keeps the scene frame conventions: east -> +x, north -> -z', () => {
         const { buildings } = scaleCoordinates([
             { nodes: [[0, 0], [0.01, 0], [0, 0.01]], height: 3, elevation: 0 },
         ])
         const [origin, east, north] = buildings[0].nodes
         expect(east[0]).toBeGreaterThan(origin[0]) // east of origin -> larger x
-        expect(north[1]).toBeGreaterThan(origin[1]) // north of origin -> larger z
+        expect(north[1]).toBeLessThan(origin[1]) // north of origin -> smaller z
     })
 
     it('is equivalent to createTransform + projectBuildings', () => {
@@ -215,6 +216,19 @@ describe('scaleCoordinates', () => {
         expect(buildings[0].height).toBeCloseTo(24 * transform.verticalScale, 6)
         expect(buildings[0].height).toBeGreaterThan(30)
         expect(buildings[0].height).toBeLessThan(120)
+    })
+})
+
+describe('worldToScene', () => {
+    const transform = { centerWx: 0.5, centerWy: 0.5, scale: 1000 }
+
+    it('maps the anchor center to the scene origin', () => {
+        expect(worldToScene(0.5, 0.5, transform)).toEqual([0, 0])
+    })
+
+    it('maps east to +x and south to +z', () => {
+        expect(worldToScene(0.6, 0.5, transform)[0]).toBeCloseTo(100) // east
+        expect(worldToScene(0.5, 0.6, transform)[1]).toBeCloseTo(100) // south (wy grows south)
     })
 })
 

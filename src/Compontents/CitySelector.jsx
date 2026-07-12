@@ -82,7 +82,8 @@ const CitySelector = ({ setMapOpen }) => {
         if (factor && elevationAttr) {
             const pos = geometry.getAttribute('position')
             for (let i = 0; i < pos.count; i++) {
-                pos.setY(i, pos.getY(i) - elevationAttr.getX(i) * factor)
+                // Same sign as the render shader: elevation raises the building.
+                pos.setY(i, pos.getY(i) + elevationAttr.getX(i) * factor)
             }
             pos.needsUpdate = true
         }

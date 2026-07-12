@@ -4,6 +4,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import * as BufferGeometryUtils from "three/addons/utils/BufferGeometryUtils.js";
 import { useData } from "../Context/DataContext";
 import { useError } from "../Context/ErrorContext";
+import { worldToScene } from "../utils/dataFunctions";
 
 import sampleBuildings from "../constants/sampleCity.json";
 const SCENE_CONFIG = {
@@ -12,14 +13,15 @@ const SCENE_CONFIG = {
         fov: 75,
         near: 0.1,
         far: 15000,
-        position: { x: 0, y: 100, z: -200 },
+        // South of the origin (north = -Z), so the initial view faces north.
+        position: { x: 0, y: 100, z: 200 },
     },
     lights: {
         ambient: { color: 0xffffff, intensity: 0.6 },
         directional: {
             color: 0xffffff,
             intensity: 1,
-            position: { x: 300, y: 500, z: 200 },
+            position: { x: -300, y: 500, z: -200 },
         },
     },
     controls: {
@@ -92,13 +94,17 @@ const ThreeScene = () => {
                     continue;
                 }
 
+                // Nodes are scene [x, z] (east = +X, north = -Z; see
+                // worldToScene). THREE.Shape lives in an XY plane, so the
+                // shape's y takes -z; rotateX(-90°) then maps shape (x, y, e)
+                // to scene (x, e, -y) = (x, e, z) with the extrusion up +Y.
                 const shape = new THREE.Shape();
 
-                shape.moveTo(nodes[0][0], nodes[0][1]);
+                shape.moveTo(nodes[0][0], -nodes[0][1]);
                 for (let i = 1; i < nodes.length; i++) {
-                    shape.lineTo(nodes[i][0], nodes[i][1]);
+                    shape.lineTo(nodes[i][0], -nodes[i][1]);
                 }
-                shape.lineTo(nodes[0][0], nodes[0][1]);
+                shape.lineTo(nodes[0][0], -nodes[0][1]);
 
                 const extrudeSettings = {
                     depth: height / 4,
@@ -109,7 +115,7 @@ const ThreeScene = () => {
                     shape,
                     extrudeSettings,
                 );
-                geometry.rotateX(Math.PI / 2);
+                geometry.rotateX(-Math.PI / 2);
 
                 // Store per-vertex elevation instead of baking it in, so a shader
                 // uniform can switch elevation on/off without a rebuild.
@@ -143,12 +149,13 @@ const ThreeScene = () => {
                     "attribute float aElevation;\nuniform float uElevationFactor;\n" +
                     shader.vertexShader.replace(
                         "#include <begin_vertex>",
-                        "#include <begin_vertex>\n    transformed.y += -aElevation * uElevationFactor;",
+                        "#include <begin_vertex>\n    transformed.y += aElevation * uElevationFactor;",
                     );
             };
 
+            // Geometry is already in the final scene frame — no mesh-level
+            // rotations or mirrors (see worldToScene in dataFunctions).
             const cityMesh = new THREE.Mesh(mergedGeometry, material);
-            cityMesh.rotation.z = Math.PI;
 
             return cityMesh;
         },
@@ -393,7 +400,8 @@ const ThreeScene = () => {
                 cameraRef.current.getWorldDirection(dirVec);
                 dirVec.y = 0;
                 if (dirVec.lengthSq() > 0.000001) dirVec.normalize();
-                const angleRad = Math.atan2(dirVec.x, dirVec.z);
+                // North is -Z: heading north (dir = (0,0,-1)) -> arrow at 0°.
+                const angleRad = Math.atan2(-dirVec.x, -dirVec.z);
                 const angleDeg = angleRad * (180 / Math.PI);
                 compassRef.current.arrow.style.transform = `rotate(${angleDeg}deg)`;
             }
@@ -436,9 +444,9 @@ const ThreeScene = () => {
     }, [buildings, createCity, setMesh, setLoaderState, setLoaderMessage]);
 
     // Map ground: a textured plane spanning the stitched tiles' exact
-    // web-mercator bounds. The transforms below reproduce the buildings'
-    // world mapping (east = -X, north = +Z), so streets land under their
-    // footprints. Rebuilt only when a new city/ground arrives.
+    // web-mercator bounds, placed through the same worldToScene mapping the
+    // buildings use, so streets land under their footprints. Rebuilt only
+    // when a new city/ground arrives.
     useEffect(() => {
         const scene = sceneRef.current;
         if (!scene) return;
@@ -456,19 +464,15 @@ const ThreeScene = () => {
         if (!ground || !transform) return;
 
         const { wxMin, wyMin, wxMax, wyMax } = ground.tileWorldBounds;
-        const { centerWx, centerWy, scale } = transform;
+        // Same frame as the buildings, via the same helper: NW and SE tile
+        // corners in scene space give the plane's extent and center directly.
+        const [xNW, zNW] = worldToScene(wxMin, wyMin, transform);
+        const [xSE, zSE] = worldToScene(wxMax, wyMax, transform);
 
-        const geometry = new THREE.PlaneGeometry(
-            (wxMax - wxMin) * scale,
-            (wyMax - wyMin) * scale,
-        );
-        geometry.rotateX(Math.PI / 2); // lay flat; canvas top row (north) -> +Z
-        geometry.scale(-1, 1, 1); // east -> -X, matching the building projection
-        geometry.translate(
-            -((wxMin + wxMax) / 2 - centerWx) * scale,
-            0,
-            -((wyMin + wyMax) / 2 - centerWy) * scale,
-        );
+        const geometry = new THREE.PlaneGeometry(xSE - xNW, zSE - zNW);
+        // Lay flat facing up; canvas top row (north) lands at -Z.
+        geometry.rotateX(-Math.PI / 2);
+        geometry.translate((xNW + xSE) / 2, 0, (zNW + zSE) / 2);
 
         const texture = new THREE.CanvasTexture(ground.canvas);
         texture.colorSpace = THREE.SRGBColorSpace;

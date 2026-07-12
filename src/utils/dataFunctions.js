@@ -123,22 +123,28 @@ export const createTransform = (geoBounds, options = {}) => {
 export const getMinElevation = (buildings) =>
     (buildings || []).reduce((min, b) => (b.elevation != null ? Math.min(min, b.elevation) : min), Infinity)
 
+// THE scene frame, in one place. Maps normalized Web-Mercator world
+// coordinates to scene XZ through a transform:
+//   east -> +X, south -> +Z (so north is -Z), up is +Y.
+// Right-handed and non-mirrored; a camera on +Z looking at the origin faces
+// north. Buildings and map-ground tiles must both go through this helper so
+// no other axis flips exist anywhere in the pipeline.
+export const worldToScene = (wx, wy, transform) => [
+    (wx - transform.centerWx) * transform.scale,
+    (wy - transform.centerWy) * transform.scale,
+]
+
 // Projects processed buildings (lon/lat nodes, height in levels, elevation in
 // meters) into the scene frame defined by `transform`. Pure per building, so
 // disjoint batches projected through one shared transform are mutually
 // consistent — the property chunked loading will rely on.
 export const projectBuildings = (buildings, transform) => {
-    const { centerWx, centerWy, scale, verticalScale, metersPerLevel, minElevation } = transform
+    const { verticalScale, metersPerLevel, minElevation } = transform
 
     return buildings.map((building) => {
         const scaledNodes = building.nodes.map(([lon, lat]) => {
             const [wx, wy] = lonLatToWorld(lon, lat)
-            // Same axis conventions the renderer already uses: x behaves like
-            // longitude (east+), the second component like latitude (north+),
-            // hence the sign flip on wy (which grows south).
-            const x = (wx - centerWx) * scale
-            const z = -(wy - centerWy) * scale
-            return [x, z]
+            return worldToScene(wx, wy, transform)
         })
 
         const y = building.elevation != null ? (building.elevation - minElevation) * verticalScale : 0

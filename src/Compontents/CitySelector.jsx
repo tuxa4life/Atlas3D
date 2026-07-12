@@ -4,13 +4,11 @@ import Tab from './Svgs/tab.svg?react'
 import { useEffect, useState } from "react"
 import Button from "./UI/Button"
 import Checkbox from "./UI/Checkbox"
-import * as THREE from "three"
-import { GLTFExporter, OBJExporter, STLExporter } from "three/addons/Addons.js"
 import { useError } from "../Context/ErrorContext"
 import { reverseGeocodeService } from "../services/apiService"
 
 const CitySelector = ({ setMapOpen }) => {
-    const { setSelectedCity, mesh, elevated, setElevated, modelName, setModelName, setShowMap } = useData()
+    const { setSelectedCity, setElevated, setShowMap } = useData()
     const { showError, setLoaderMessage, setLoaderState } = useError()
     const [open, setOpen] = useState(true)
 
@@ -35,7 +33,6 @@ const CitySelector = ({ setMapOpen }) => {
 
     const selectPlace = (place) => {
         if (!place) return
-        setModelName(place.name || '')
         setSelectedCity({ id: place.id, type: place.type })
     }
 
@@ -63,82 +60,6 @@ const CitySelector = ({ setMapOpen }) => {
             },
             { timeout: 10000 },
         )
-    }
-
-    const exportModel = (format) => {
-        if (!mesh) {
-            showError('Generate a model first.')
-            return
-        }
-
-        setLoaderState(true)
-        setLoaderMessage('Exporting model...')
-
-        // Bake the currently-visible elevation (applied on screen via a shader
-        // uniform) into a cloned geometry so the exported file matches the view.
-        const geometry = mesh.geometry.clone()
-        const factor = elevated ? 1 : 0
-        const elevationAttr = geometry.getAttribute('aElevation')
-        if (factor && elevationAttr) {
-            const pos = geometry.getAttribute('position')
-            for (let i = 0; i < pos.count; i++) {
-                // Same sign as the render shader: elevation raises the building.
-                pos.setY(i, pos.getY(i) + elevationAttr.getX(i) * factor)
-            }
-            pos.needsUpdate = true
-        }
-
-        const exportMaterial = new THREE.MeshStandardMaterial({ color: '#E8E8E8', flatShading: true })
-        const exportMesh = new THREE.Mesh(geometry, exportMaterial)
-        exportMesh.rotation.copy(mesh.rotation)
-        exportMesh.updateMatrixWorld(true)
-
-        const baseName = (modelName || 'model').trim().replace(/[^\w-]+/g, '_').toLowerCase() || 'model'
-
-        const finish = (ok) => {
-            geometry.dispose()
-            exportMaterial.dispose()
-            setLoaderMessage(ok ? 'Export complete!' : 'Export failed!')
-            setTimeout(() => {
-                setLoaderState(false)
-                setLoaderMessage('')
-            }, ok ? 1000 : 1500)
-        }
-
-        const download = (data, mime, ext) => {
-            const blob = new Blob([data], { type: mime })
-            const link = document.createElement('a')
-            link.download = `${baseName}.${ext}`
-            link.href = URL.createObjectURL(blob)
-            link.click()
-            URL.revokeObjectURL(link.href)
-        }
-
-        try {
-            if (format === 'stl') {
-                download(new STLExporter().parse(exportMesh), 'application/octet-stream', 'stl')
-                finish(true)
-            } else if (format === 'obj') {
-                download(new OBJExporter().parse(exportMesh), 'text/plain', 'obj')
-                finish(true)
-            } else {
-                new GLTFExporter().parse(
-                    exportMesh,
-                    (gltf) => {
-                        download(JSON.stringify(gltf), 'application/json', 'gltf')
-                        finish(true)
-                    },
-                    (err) => {
-                        console.error('Export failed:', err)
-                        finish(false)
-                    },
-                    { binary: false },
-                )
-            }
-        } catch (err) {
-            console.error('Export failed:', err)
-            finish(false)
-        }
     }
 
     return <div style={{ zIndex: 1, position: 'fixed', top: '10px', right: '10px', padding: '20px 20px', backgroundColor: 'rgba(255, 255, 255, 0.6)', backdropFilter: 'blur(5px)', borderRadius: '3px', maxWidth: '80vw', transform: `translateX(${open ? '0px' : '101%'})`, transition: '.3s all', boxShadow: '0 2px 6px rgba(0,0,0,0.2)' }}>
@@ -169,15 +90,6 @@ const CitySelector = ({ setMapOpen }) => {
         </div>
 
         <Button type="primary" label='Select from the map' onClick={() => setMapOpen(true)} />
-
-        <div style={{ marginTop: '10px' }}>
-            <h4 style={{ margin: '10px 0 0 0', fontSize: '13px', color: '#444' }}>Export model</h4>
-            <div style={{ display: 'flex', gap: '8px' }}>
-                <Button label='.glTF' onClick={() => exportModel('gltf')} />
-                <Button label='.STL' onClick={() => exportModel('stl')} />
-                <Button label='.OBJ' onClick={() => exportModel('obj')} />
-            </div>
-        </div>
     </div>
 }
 

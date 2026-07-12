@@ -12,9 +12,7 @@ const DataProvider = ({ children }) => {
 
     const [buildings, setBuildings] = useState([])
     const [selectedCity, setSelectedCity] = useState(-1)
-    const [mesh, setMesh] = useState(null)
     const [elevated, setElevated] = useState(true)
-    const [modelName, setModelName] = useState('')
     // Map ground: stitched OSM raster + the scene transform to place it under
     // the buildings, and a visibility toggle.
     const [ground, setGround] = useState(null)
@@ -101,21 +99,17 @@ const DataProvider = ({ children }) => {
 
     const contextValue = useMemo(
         () => ({
-            mesh,
-            setMesh,
             buildings,
             setSelectedCity,
             elevated,
             setElevated,
             fetchBuildings,
-            modelName,
-            setModelName,
             ground,
             transform,
             showMap,
             setShowMap,
         }),
-        [mesh, buildings, elevated, fetchBuildings, modelName, ground, transform, showMap]
+        [buildings, elevated, fetchBuildings, ground, transform, showMap]
     )
 
     return <DataContext.Provider value={contextValue}>{children}</DataContext.Provider>

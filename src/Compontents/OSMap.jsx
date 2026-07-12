@@ -9,7 +9,7 @@ const OSMap = ({ setMapOpen }) => {
     const [isSelecting, setIsSelecting] = useState(false)
     const [selectedArea, setSelectedArea] = useState(null)
 
-    const { fetchBuildings, setModelName } = useData()
+    const { fetchBuildings } = useData()
 
     const handleAreaSelected = (bounds) => setSelectedArea(bounds)
 
@@ -23,7 +23,6 @@ const OSMap = ({ setMapOpen }) => {
             bottomRight: { lat: Math.min(a[0], b[0]), lng: Math.max(a[1], b[1]) }
         }
 
-        setModelName('custom-area')
         fetchBuildings(coordinates, 'custom')
         setMapOpen(false)
     }

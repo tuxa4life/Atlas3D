@@ -58,7 +58,7 @@ const ThreeScene = () => {
     // .value, so the geometry never has to be rebuilt to switch modes.
     const elevationUniformRef = useRef({ value: 1 });
 
-    const { buildings, setMesh, elevated, ground, transform, showMap } = useData();
+    const { buildings, elevated, ground, transform, showMap } = useData();
     const { setLoaderState, setLoaderMessage } = useError();
 
     const createCity = useCallback(
@@ -434,14 +434,11 @@ const ThreeScene = () => {
             buildProgressRef.current = 0;
             scene.add(cityMesh);
             cityMeshRef.current = cityMesh;
-            setMesh(cityMesh);
-        } else {
-            setMesh(null);
         }
 
         setLoaderState(false);
         setLoaderMessage("");
-    }, [buildings, createCity, setMesh, setLoaderState, setLoaderMessage]);
+    }, [buildings, createCity, setLoaderState, setLoaderMessage]);
 
     // Map ground: a textured plane spanning the stitched tiles' exact
     // web-mercator bounds, placed through the same worldToScene mapping the

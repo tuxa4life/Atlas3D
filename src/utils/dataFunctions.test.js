@@ -33,6 +33,20 @@ describe('returnQuery', () => {
             'custom',
         )
         expect(q).toContain("way['building']")
+        expect(q).toContain("relation['building']")
+        expect(q).toContain("way['building:part']")
+        expect(q).toContain("node['building']")
+    })
+
+    it('fetches ways, relations, building:part and nodes for every area type', () => {
+        for (const [id, type] of [[123, 'relation'], [55, 'way'], [77, 'node']]) {
+            const q = returnQuery(id, type)
+            expect(q).toContain("way['building']")
+            expect(q).toContain("relation['building']")
+            expect(q).toContain("way['building:part']")
+            expect(q).toContain("relation['building:part']")
+            expect(q).toContain("node['building']")
+        }
     })
 
     it('offsets relation ids into the Overpass area space', () => {
@@ -80,6 +94,69 @@ describe('processBuildings', () => {
     it('falls back to the default when levels are non-numeric', () => {
         const [b] = processBuildings([element({ 'building:levels': 'abc' })])
         expect(b.height).toBe(DEFAULT_BUILDING_LEVELS)
+    })
+
+    it('extracts outer rings from a multipolygon relation and skips inner ones', () => {
+        const relation = {
+            type: 'relation',
+            tags: { building: 'yes', 'building:levels': '4' },
+            members: [
+                {
+                    type: 'way',
+                    role: 'outer',
+                    geometry: [
+                        { lon: 0, lat: 0 },
+                        { lon: 4, lat: 0 },
+                        { lon: 4, lat: 4 },
+                        { lon: 0, lat: 4 },
+                    ],
+                },
+                {
+                    type: 'way',
+                    role: 'inner',
+                    geometry: [
+                        { lon: 1, lat: 1 },
+                        { lon: 2, lat: 1 },
+                        { lon: 2, lat: 2 },
+                    ],
+                },
+            ],
+        }
+
+        const result = processBuildings([relation])
+        expect(result).toHaveLength(1)
+        expect(result[0].height).toBe(4)
+        expect(result[0].nodes).toEqual([[0, 0], [4, 0], [4, 4], [0, 4]])
+    })
+
+    it('drops geometry with fewer than three real points and null gaps', () => {
+        const clipped = {
+            geometry: [{ lon: 0, lat: 0 }, null, { lon: 1, lat: 1 }],
+            tags: { building: 'yes' },
+        }
+        expect(processBuildings([clipped])).toHaveLength(0)
+    })
+
+    it('synthesizes a square footprint for a node building', () => {
+        const node = { type: 'node', lat: 10, lon: 20, tags: { building: 'yes' } }
+        const [b] = processBuildings([node])
+        expect(b.nodes).toHaveLength(4)
+        // Square is centred on the node point.
+        expect(b.center.latitude).toBeCloseTo(10, 6)
+        expect(b.center.longitude).toBeCloseTo(20, 6)
+        // Non-degenerate: opposite corners differ.
+        expect(b.nodes[0]).not.toEqual(b.nodes[2])
+    })
+
+    it('processes building:part ways like any other footprint', () => {
+        const part = {
+            type: 'way',
+            geometry: [{ lon: 0, lat: 0 }, { lon: 1, lat: 0 }, { lon: 1, lat: 1 }],
+            tags: { 'building:part': 'yes', 'building:levels': '10' },
+        }
+        const [b] = processBuildings([part])
+        expect(b.height).toBe(10)
+        expect(b.nodes).toEqual([[0, 0], [1, 0], [1, 1]])
     })
 })
 
